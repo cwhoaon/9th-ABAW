@@ -1,0 +1,6 @@
+*.zip
+*.pyc
+*__pycache__/*
+agi
+preprocessing/load/vosk-model-en-us-0.22
+*.ipynb
