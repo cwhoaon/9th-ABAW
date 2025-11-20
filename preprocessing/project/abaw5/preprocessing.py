@@ -1,3 +1,4 @@
+import pdb
 from base.preprocessing import GenericVideoPreprocessing
 
 from base.utils import ensure_dir, save_to_pickle, load_pickle
@@ -34,7 +35,7 @@ class PreprocessingABAW5(GenericVideoPreprocessing):
                 filtered_df = df[df['mode'] == partition]
                 video_ids = filtered_df['video_id'].tolist()
                 clip_ids = filtered_df['clip_id'].tolist()
-                self.trial_list[self.task][partition] = zip(video_ids, clip_ids)
+                self.trial_list[self.task][partition] = [f'{video_id}_{clip_id}' for video_id, clip_id in zip(video_ids, clip_ids)]
                 # self.trial_list[self.task][partition] = [file.split(".txt")[0] for file in self.get_all_file(os.path.join(self.config['root_directory'], self.config['annotation_folder'], self.task, partition), filename_only=True)]
 
             # elif partition == "extra":
@@ -47,7 +48,15 @@ class PreprocessingABAW5(GenericVideoPreprocessing):
         valid_trial_list = self.trial_list[self.task]['valid']
         
         total_trial_list = list(train_trial_list) + list(valid_trial_list)
-        total_path_list = [os.path.join(self.config['root_directory'], self.config['raw_data_folder'], vid_id, f"{clip_id}.mp4") for vid_id, clip_id in total_trial_list]
+        total_path_list = []
+        for vid_cid in total_trial_list:
+            vcid = vid_cid.split('_')
+            cid = vcid[-1]
+            vid = '_'.join(vcid[:-1])
+            video_path = os.path.join(self.config['root_directory'], self.config['raw_data_folder'], vid, f"{cid}.mp4")
+            total_path_list.append(video_path)
+        
+        # total_path_list = [os.path.join(self.config['root_directory'], self.config['raw_data_folder'], vid_clipid.split('_')[0], f"{vid_clipid.split('_')[1]}.mp4") for vid_clipid in total_trial_list]
         # path = os.path.join(self.config['root_directory'], self.config['cropped_aligned_folder'])
         # iterator = sorted([f.path for f in os.scandir(path) if f.is_dir()])
         iterator = sorted(total_path_list)
@@ -75,12 +84,11 @@ class PreprocessingABAW5(GenericVideoPreprocessing):
     def generate_per_trial_info_dict(self):
         
         ##### for debugging #####
-        per_trial_info_path = os.path.join(self.config['output_root_directory'], "processing_records_p1.pkl")
+        per_trial_info_path = os.path.join(self.config['output_root_directory'], "processing_records_10.pkl")
         # per_trial_info_path = os.path.join(self.config['output_root_directory'], "processing_records.pkl")
 
         if os.path.isfile(per_trial_info_path):
             per_trial_info = load_pickle(per_trial_info_path)
-
         else:
 
             per_trial_info = []
@@ -179,11 +187,15 @@ class PreprocessingABAW5(GenericVideoPreprocessing):
                         self.dataset_info['pseudo_partition'].append('extra')
                 else:
                     self.dataset_info['pseudo_partition'].append('unused')
+                    
+                # import ipdb; ipdb.set_trace()
+                # print(self.dataset_info)
 
         self.dataset_info['data_folder'] = self.config['npy_folder']
-
+        
         path = os.path.join(self.config['output_root_directory'], f'dataset_info_{self.part}.pkl')
-        save_to_pickle(path, self.dataset_info)
+        import ipdb; ipdb.set_trace()   
+        save_to_pickle(path, self.dataset_info, replace=True)
 
     def compact_facial_image(self, path, annotated_index, extension="jpg"):
         from PIL import Image
@@ -239,6 +251,7 @@ class PreprocessingABAW5(GenericVideoPreprocessing):
         if feature == "video" or feature == "vggish" or feature == "mfcc" or feature == "egemaps" or feature == "logmel":
             target_frequency = source_frequency
 
+        
         sampled_index = np.asarray(np.round(target_frequency / source_frequency * annotated_index), dtype=np.int64)
 
         return sampled_index
@@ -291,7 +304,6 @@ class PreprocessingABAW5(GenericVideoPreprocessing):
                     this_trial['has_' + self.task + '_label'] = 1
 
             wild_trial = 0
-
         return this_trial, wild_trial
 
     @staticmethod

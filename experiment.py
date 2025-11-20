@@ -1,6 +1,6 @@
 from base.experiment import GenericExperiment
-from base.utils import load_pickle
-from base.loss_function import CCCLoss
+from base.utils import load_pickle, get_vid_cid
+from base.loss_function import CCCLoss, MSELoss
 from trainer import Trainer
 
 from dataset import DataArranger, Dataset
@@ -10,6 +10,8 @@ from models.model import LFAN, CAN
 from base.parameter_control import ResnetParamControl
 
 import os
+import numpy as np
+import pandas as pd
 
 
 class Experiment(GenericExperiment):
@@ -28,7 +30,12 @@ class Experiment(GenericExperiment):
         self.num_heads = args.num_heads
         self.modal_dim = args.modal_dim
         self.tcn_kernel_size = args.tcn_kernel_size
-
+        
+        self.label_path = args.label_path
+        self.labels = pd.read_csv(self.label_path)
+        
+        
+        
     def prepare(self):
         self.config = self.get_config()
 
@@ -51,7 +58,7 @@ class Experiment(GenericExperiment):
 
     def run(self):
 
-        criterion = CCCLoss()
+        criterion = MSELoss()
 
         for fold in iter(self.folds_to_run):
 
@@ -98,10 +105,18 @@ class Experiment(GenericExperiment):
             trainer.test(checkpoint_controller, predict_only=1, **test_kwargs)
 
     def init_dataset(self, data, continuous_label_dim, mode, fold):
+        for i in range(len(data)):
+            vid, cid = get_vid_cid(data[i][1])
+            row = self.labels.loc[(self.labels["video_id"] == vid) & (self.labels["clip_id"] == int(cid))].iloc[0]
+            row = row.to_numpy()[5:].astype(np.float32)
+            data[i].append(row)
+        
         dataset = Dataset(data, continuous_label_dim, self.modality, self.multiplier,
                           self.feature_dimension, self.window_length,
                           mode, mean_std=self.mean_std_dict[fold][mode], time_delay=self.time_delay)
         return dataset
+
+
 
     def init_model(self):
         self.init_randomness()
@@ -125,12 +140,16 @@ class Experiment(GenericExperiment):
     def get_config(self):
         from configs import config
         return config
-
+    
     def get_selected_continuous_label_dim(self):
-        if self.emotion == "arousal":
-            dim = [1]
-        elif self.emotion == "valence":
-            dim = [0]
-        else:
-            raise ValueError("Unknown emotion!")
+        dim = [i for i in range(7)]
         return dim
+
+    # def get_selected_continuous_label_dim(self):
+    #     if self.emotion == "arousal":
+    #         dim = [1]
+    #     elif self.emotion == "valence":
+    #         dim = [0]
+    #     else:
+    #         raise ValueError("Unknown emotion!")
+    #     return dim

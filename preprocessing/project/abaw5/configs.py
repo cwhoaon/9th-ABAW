@@ -78,10 +78,10 @@ config = {
     "extract_vggish": 1, # Used to extract vggish
     "vggish_folder": "vggish",
 
-    "extract_transcript": 1, # Use Vosk to transcribe the video with timestamp.
+    "extract_transcript": 0, # Use Vosk to transcribe the video with timestamp.
     "transcript_folder": "transcript",
 
-    "add_punctuation": 1, # Then add punctuation on the extracted transcripts.
+    "add_punctuation": 0, # Then add punctuation on the extracted transcripts.
     "punctuation_folder": "punctuation",
 
     "extract_word_embedding": 0, # Then extract bert

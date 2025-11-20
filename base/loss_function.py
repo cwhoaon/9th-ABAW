@@ -1,6 +1,7 @@
 import torch
 from torch import nn
 import torch.nn.functional as F
+import einops
 
 
 class CCCLoss(nn.Module):
@@ -9,7 +10,8 @@ class CCCLoss(nn.Module):
 
     def forward(self, gold, pred, weights=None):
 
-        gold_mean = torch.mean(gold, 1, keepdim=True, out=None)
+        # gold_mean = torch.mean(gold, 1, keepdim=True, out=None)
+        gold_mean = gold
         pred_mean = torch.mean(pred, 1, keepdim=True, out=None)
         covariance = (gold - gold_mean) * (pred - pred_mean)
         gold_var = torch.var(gold, 1, keepdim=True, unbiased=True, out=None)
@@ -22,3 +24,15 @@ class CCCLoss(nn.Module):
             ccc_loss *= weights
 
         return torch.mean(ccc_loss)
+
+class MSELoss(nn.Module):
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, gold, pred, weights=None):
+        mse_loss = F.mse_loss(pred, gold, reduction='none')
+
+        if weights is not None:
+            mse_loss *= weights
+
+        return torch.mean(mse_loss)

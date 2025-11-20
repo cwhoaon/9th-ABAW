@@ -9,7 +9,7 @@ if __name__ == '__main__':
 
     # 1. Experiment Setting
     # 1.1. Server
-    parser.add_argument('-gpu', default=2, type=int, help='Which gpu to use?')
+    parser.add_argument('-gpu', default=0, type=int, help='Which gpu to use?')
     parser.add_argument('-cpu', default=1, type=int, help='How many threads are allowed?')
     parser.add_argument('-high_performance_cluster', default=1, type=int, help='On high-performance server or not?'
                                                                                'If set to 1, then the gpu and cpu settings will be ignored.'
@@ -17,19 +17,20 @@ if __name__ == '__main__':
                                                                                'e.g., on Google Colab or NSCC.')
 
     # 1.2. Paths
-    parser.add_argument('-dataset_path', default='/home/dxlab/jupyter/Yubeen/abaw9', type=str,
+    parser.add_argument('-dataset_path', default='agi', type=str,
                         help='The root directory of the preprocessed dataset.')  # /scratch/users/ntu/su012/dataset/mahnob
-    parser.add_argument('-load_path', default='/home/dxlab/jupyter/Yubeen/pretrained_model', type=str,
+    parser.add_argument('-load_path', default='pretrained_model', type=str,
                         help='The path to load the trained models, such as the backbone.')  # /scratch/users/ntu/su012/pretrained_model
-    parser.add_argument('-save_path', default='/home/dxlab/jupyter/Yubeen/save6', type=str,
+    parser.add_argument('-label_path', default='agi/merged_label.csv', type=str,)
+    parser.add_argument('-save_path', default='output', type=str,
                         help='The path to save the trained models ')  # /scratch/users/ntu/su012/trained_model
-    parser.add_argument('-python_package_path', default='/home/dxlab/jupyter/Yubeen/ABAW9', type=str,
+    parser.add_argument('-python_package_path', default='./', type=str,
                         help='The path to the entire repository.')
 
     # 1.3. Experiment name, and stamp, will be used to name the output files.
     # Stamp is used to add a string to the outpout filename, so that instances with different setting will not overwride.
-    parser.add_argument('-experiment_name', default="abaw9", help='The experiment name.')
-    parser.add_argument('-stamp', default='DCA_setup_new_TCN_AV_MGRCA_l_3', type=str, help='To indicate different experiment instances')
+    parser.add_argument('-experiment_name', default="agi_project", help='The experiment name.')
+    parser.add_argument('-stamp', default='test1', type=str, help='To indicate different experiment instances')
 
     # 1.4. Load checkpoint or not?
     parser.add_argument('-resume', default=0, type=int, help='Resume from checkpoint?')
@@ -39,7 +40,7 @@ if __name__ == '__main__':
 
     # 1.6. What modality to use?
     #  Set to ['frame'] for unimodal and ['frame', 'mfcc', 'vggish' for multimodal. Using other features may cause bugs.
-    parser.add_argument('-modality', default=['video', 'logmel', "bert", "vggish", "VA_continuous_label"], nargs="*")
+    parser.add_argument('-modality', default=['video', "vggish", 'logmel'], nargs="*")
     # Calculate mean and std for each modality?
     parser.add_argument('-calc_mean_std', default=0,  type=int,
                         help='Calculate the mean and std and save to a pickle file')
@@ -49,7 +50,7 @@ if __name__ == '__main__':
     #   and Arousal.
     # If choose valence or arousal, the output dimension can be 1 for single-headed, or 2 for multi-headed.
     # For the latter, a weight will be applied to the output to favor the selected emotion.
-    parser.add_argument('-emotion', default="valence",
+    parser.add_argument('-emotion', default="both",
                         help='The emotion dimension to focus when updating gradient: arousal, valence, both')
 
     # 1.8. Whether to save the models?
@@ -64,7 +65,7 @@ if __name__ == '__main__':
     # 2.1. Overall settings
     parser.add_argument('-model_name', default="LFAN", help='LFAN, CAN')
     parser.add_argument('-cross_validation', default=1, type=int)
-    parser.add_argument('-num_folds', default=6, type=int)
+    parser.add_argument('-num_folds', default=2, type=int)
     parser.add_argument('-folds_to_run', default=[0], nargs="+", type=int, help='Which fold(s) to run? Each fold may take 1-2 days.')
 
     # 2.2. Epochs and data

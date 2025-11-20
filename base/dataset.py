@@ -9,6 +9,27 @@ from torchvision.transforms import transforms
 from base.transforms3D import *
 from base.utils import load_npy
 
+import pandas as pd
+
+
+# def csv2npy(csv_path):
+#     arr = np.loadtxt(csv_path, delimiter=';')
+#     return arr
+
+def compact_audio_feature(path, start_col=0, end_col=0, feature=""):
+        length = 128
+        sep = ","
+        if feature == "facial_landmark":
+            sep = ","
+        elif feature == "vggish":
+            sep = ";"
+        feature_matrix = pd.read_csv(path, sep=sep, usecols=range(start_col, end_col)).values
+        length_difference = length - len(feature_matrix) + 1
+        if length_difference > 0:
+            feature_matrix = np.vstack(
+                (feature_matrix, np.repeat(feature_matrix[-1, :][None, :], length_difference, axis=0)))
+        # feature_matrix = feature_matrix[annotated_index]
+        return feature_matrix
 
 class GenericDataArranger(object):
     def __init__(self, dataset_info, dataset_path, debug):
@@ -32,7 +53,7 @@ class GenericDataArranger(object):
         assert  len(train_validate_range) == self.fold_to_partition['train'] + self.fold_to_partition['validate']
 
         partition_range = list(np.roll(train_validate_range, fold))
-        partition_range += self.partition_range['test'] + self.partition_range['extra']
+        partition_range += self.partition_range['test']
         partitioned_trial = {}
 
         for partition, num_fold in self.fold_to_partition.items():
@@ -67,7 +88,12 @@ class GenericDataArranger(object):
                 lengths = 0
                 sums = 0
                 for path, _, _, _ in trial_of_a_partition:
-                    data = load_npy(path, feature)
+                    filename = os.path.basename(path)
+                    
+                    path = os.path.join('agi', 'vggish', f'{filename}.csv')
+                    data = compact_audio_feature(path, start_col=0, end_col=128, feature="vggish")
+                    
+                    # data = load_npy(path, feature)
                     data = data.flatten()
                     lengths += len(data)
                     sums += data.sum()
@@ -80,7 +106,12 @@ class GenericDataArranger(object):
                 x_minus_mean_square = 0
                 mean = mean_std_dict[partition][feature]['mean']
                 for path, _, _, _ in trial_of_a_partition:
-                    data = load_npy(path, feature)
+                    filename = os.path.basename(path)
+                    
+                    path = os.path.join('agi', 'vggish', f'{filename}.csv')
+                    data = compact_audio_feature(path, start_col=0, end_col=128, feature="vggish")
+                    
+                    # data = load_npy(path, feature)
                     data = data.flatten()
                     lengths += len(data)
                     x_minus_mean_square += np.sum((data - mean) ** 2)
@@ -105,7 +136,7 @@ class GenericDataArranger(object):
     def generate_raw_trial_list(self, dataset_path):
         trial_path = os.path.join(dataset_path, self.dataset_info['data_folder'])
 
-        trial_dict = OrderedDict({'train': [], 'validate': [], 'extra': [], 'test': []})
+        trial_dict = OrderedDict({'train': [], 'valid': [], 'test': []})
         for idx, partition in enumerate(self.generate_iterator()):
 
             if partition == "unused":
@@ -204,16 +235,21 @@ class GenericDataset(Dataset):
         return transform
 
     def __getitem__(self, index):
-        path, trial, length, index = self.data_list[index]
+        path, trial, length, index, label = self.data_list[index]
 
         examples = {}
 
         for feature in self.modality:
             # print(f"Loading feature: {feature}")  # 이거 추가
             examples[feature] = self.get_example(path, length, index, feature)
+        examples['labels'] = label
+        
 
         if len(index) < self.window_length:
             index = np.arange(self.window_length)
+            
+        
+        import ipdb; ipdb.set_trace()
 
         return examples, trial, length, index
 
@@ -221,7 +257,6 @@ class GenericDataset(Dataset):
         return len(self.data_list)
 
     def get_example(self, path, length, index, feature):
-
 
         x = random.randint(0, self.multiplier[feature] - 1)
         random_index = index * self.multiplier[feature] + x

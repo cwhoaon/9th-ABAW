@@ -66,3 +66,9 @@ def ensure_dir(file_path):
 
 def sigmoid(x):
   return 1 / (1 + np.exp(-x))
+
+def get_vid_cid(vcid):
+    vcid = vcid.split("_")
+    cid = vcid[-1]
+    vid = "_".join(vcid[:-1])
+    return vid, cid

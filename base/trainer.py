@@ -1,3 +1,4 @@
+import einops
 from base.logger import ContinuousOutputHandler, ContinuousMetricsCalculator, PlotHandler
 from base.scheduler import GradualWarmupScheduler
 
@@ -252,11 +253,13 @@ class GenericVideoTrainer(GenericTrainer):
 
             for feature, value in X.items():
                 inputs[feature] = X[feature].to(self.device)
-
             if "continuous_label" in inputs:
                 labels = inputs.pop("continuous_label", None)
             elif "VA_continuous_label" in inputs:
                 labels = inputs.pop("VA_continuous_label", None)
+            
+            labels = inputs.pop("labels", None)
+            
 
             if len(torch.flatten(labels)) == self.batch_size:
                 labels = torch.zeros((self.batch_size, len(indices[0]), 1), dtype=torch.float32).to(self.device)
@@ -265,7 +268,13 @@ class GenericVideoTrainer(GenericTrainer):
                 self.optimizer.zero_grad()
 
             outputs = self.model(inputs)
-
+            
+            outputs[:,:,0].clamp(-1.0, 1.0)
+            outputs[:,:,1:].clamp(0.0, 1.0)
+            
+            B, w, d = outputs.shape
+            labels = einops.repeat(labels, "b d -> b w d", w=w) / 3
+            
             loss = self.criterion(labels, outputs)
 
             running_loss += loss.mean().item()

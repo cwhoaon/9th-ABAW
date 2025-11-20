@@ -1,3 +1,4 @@
+import ipdb
 from models.arcface_model import Backbone
 from models.temporal_convolutional_model import TemporalConvNet
 from models.transformer import MultimodalTransformerEncoder, IntraModalTransformerEncoder, InterModalTransformerEncoder
@@ -294,19 +295,20 @@ class LFAN(nn.Module):
         return vggish
 
     def init(self):
-        self.output_dim = 1
+        self.output_dim = 7
 
 
         if 'video' in self.modality:
             self.root_dir = self.root_dir
             self.spatial["visual"] = self.load_visual_backbone(backbone_settings=self.backbone_settings)
 
-        if 'logmel' in self.modality:
-            self.root_dir = self.root_dir
-            self.spatial["audio"] = self.load_audio_backbone(backbone_settings=self.backbone_settings)
+        # if 'logmel' in self.modality:
+        #     self.root_dir = self.root_dir
+        #     self.spatial["audio"] = self.load_audio_backbone(backbone_settings=self.backbone_settings)
 
         for modal in self.modality:
-
+            if modal =='vggish':
+                continue
             self.temporal[modal] = TemporalConvNet(num_inputs=self.embedding_dim[modal], max_length=self.example_length,
                                                    num_channels=self.tcn_channel[modal], attention=self.tcn_attention,
                                                    kernel_size=self.kernel_size, dropout=0.1).to(self.device)
@@ -328,14 +330,16 @@ class LFAN(nn.Module):
             _, feature_dim = X['video'].shape
             X['video'] = X['video'].view(batch_size, length, feature_dim).unsqueeze(1) # [batch, 1, length, feature_dim]
 
-        if 'logmel' in X:        
-            batch_size, height, length, width = X['logmel'].shape
-            X['logmel'] = X['logmel'].permute((0, 2, 3, 1)).contiguous()
-            X['logmel'] = X['logmel'].view(-1, width, height) # [batch x length, channel, width, height]
-            X['logmel'] = self.spatial.audio(X['logmel'])
+        # if 'logmel' in X:        
+        #     batch_size, height, length, width = X['logmel'].shape
+        #     X['logmel'] = X['logmel'].permute((0, 2, 3, 1)).contiguous()
+        #     X['logmel'] = X['logmel'].view(-1, width, height) # [batch x length, channel, width, height]
+        #     X['logmel'] = self.spatial.audio(X['logmel'])
         
-            _, feature_dim = X['logmel'].shape
-            X['logmel'] = X['logmel'].view(batch_size, length, feature_dim).unsqueeze(1) # [batch, 1, length, feature_dim]
+        X['logmel'] = X['vggish']
+        del X['vggish']
+        # _, feature_dim = X['logmel'].shape
+        # X['logmel'] = X['logmel'].view(batch_size, length, feature_dim).unsqueeze(1) # [batch, 1, length, feature_dim]
 
         for modal in X:
             X[modal] = X[modal].squeeze(1).transpose(1, 2)
@@ -352,7 +356,7 @@ class LFAN(nn.Module):
         c = self.bn1(c).transpose(1, 2)
         c = F.leaky_relu(c)
         c = self.regressor2(c)
-        c = torch.tanh(c)
+        # c = torch.tanh(c)
         #X = torch.cat((X[self.modality[0]], follower), dim=-1)
         #X = self.regressor(X)
         #X = X.view(batch_size, self.example_length, -1)
