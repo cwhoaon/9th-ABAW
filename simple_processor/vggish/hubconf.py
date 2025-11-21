@@ -1,6 +1,6 @@
 dependencies = ['torch', 'numpy', 'resampy', 'soundfile']
 
-from simple_processor.vggish.vggish import VGGish
+from vggish.vggish import VGGish
 
 model_urls = {
     'vggish': 'https://github.com/harritaylor/torchvggish/'

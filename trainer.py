@@ -37,7 +37,7 @@ class Trainer(GenericVideoTrainer):
 
         self.scheduler = MyWarmupScheduler(
             optimizer=self.optimizer, lr = self.learning_rate, min_lr=self.min_learning_rate,
-            best=self.best_epoch_info['ccc'], mode="max", patience=self.patience,
+            best=self.best_epoch_info['ccc'], mode="min", patience=self.patience,
             factor=self.factor, num_warmup_epoch=self.min_epoch, init_epoch=epoch)
 
     def fit(self, dataloader_dict, checkpoint_controller, parameter_controller):

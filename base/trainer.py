@@ -243,9 +243,10 @@ class GenericVideoTrainer(GenericTrainer):
 
         num_batch_warm_up = len(dataloader) * self.min_epoch
 
-        for batch_idx, (X, trials, lengths, indices) in tqdm(enumerate(dataloader), total=len(dataloader)):
+        for batch_idx, (X, trials, lengths, indices, true_length) in tqdm(enumerate(dataloader), total=len(dataloader)):
             # if batch_idx < 157:
             #     continue
+            
             if train_mode:
                 self.scheduler.warmup_lr(self.learning_rate, batch_idx,  num_batch_warm_up)
 
@@ -266,11 +267,17 @@ class GenericVideoTrainer(GenericTrainer):
 
             if train_mode:
                 self.optimizer.zero_grad()
-
             outputs = self.model(inputs)
+            
             
             outputs[:,:,0].clamp(-1.0, 1.0)
             outputs[:,:,1:].clamp(0.0, 1.0)
+            
+            # mask with true_length
+            mask = torch.zeros_like(outputs)
+            for i, l in enumerate(true_length):
+                mask[i, :l, :] = 1.0
+            outputs = outputs * mask
             
             B, w, d = outputs.shape
             labels = einops.repeat(labels, "b d -> b w d", w=w) / 3

@@ -7,6 +7,48 @@ import numpy as np
 import torch
 import sys
 
+def collate_fn(batch):
+    legnths = [data[2] for data in batch]
+    # max_len = max(legnths)
+    max_len = 300
+
+    data_keys = batch[0][0].keys()
+    
+    output = [{k: [] for k in data_keys}, [], [], [], []]
+    
+    for i in range(len(batch)):
+        data, id, length, indices = batch[i]
+        for k, v in data.items():
+            if k == 'labels':
+                output[0][k].append(v)
+                continue
+            
+            if length < max_len:
+                padding = np.repeat(v[-1:, :], max_len - length, axis=0)
+                v = np.concatenate([v, padding], axis=0)
+            elif length >= max_len:
+                v = v[:max_len]
+            output[0][k].append(v)
+
+        output[1].append(id)
+        output[2].append(max_len)
+        
+        if length < max_len:
+            indices = np.arange(0, 300)
+        elif length >= max_len:
+            indices = indices[:max_len]
+        output[3].append(indices)
+        output[4].append(length)
+        
+    
+    output[0] = {k: torch.tensor(np.stack(v, axis=0), dtype=torch.float32) for k, v in output[0].items()}
+    output[0]['vggish'] = output[0]['vggish'].unsqueeze(1)
+    output[2] = torch.tensor(output[2], dtype=torch.int64)
+    output[3] = torch.tensor(np.stack(output[3], axis=0), dtype=torch.int64)
+    output[4] = torch.minimum(torch.tensor(output[4], dtype=torch.int64), torch.tensor(max_len, dtype=torch.int64))
+
+    return output
+
 class GenericImageExperiment(object):
     def __init__(self, args):
         # Basic experiment settings.
@@ -133,7 +175,7 @@ class GenericExperiment(GenericImageExperiment):
         self.init_randomness()
         data_list = self.data_arranger.generate_partitioned_trial_list(window_length=self.window_length,
                                                                        hop_length=self.hop_length, fold=fold,
-                                                                       windowing=True)
+                                                                       windowing=False)
 
         datasets, dataloaders = {}, {}
         for mode, data in data_list.items():
@@ -145,7 +187,11 @@ class GenericExperiment(GenericImageExperiment):
                 datasets[mode] = self.init_dataset(data_list[mode], self.continuous_label_dim, mode, fold)
 
                 dataloaders[mode] = torch.utils.data.DataLoader(
-                    dataset=datasets[mode], batch_size=self.batch_size, shuffle=False)
+                    dataset=datasets[mode],
+                    batch_size=self.batch_size,
+                    shuffle=False,
+                    collate_fn=collate_fn
+                )
 
         return dataloaders
 
@@ -177,7 +223,7 @@ class GenericExperiment(GenericImageExperiment):
         raise NotImplementedError
 
     def get_mean_std_dict_path(self):
-        path = os.path.join(self.dataset_path, "mean_std_info.pkl")
+        path = os.path.join(self.dataset_path, "mean_std_info_new.pkl")
         return path
 
     def calc_mean_std_fn(self):
@@ -187,7 +233,7 @@ class GenericExperiment(GenericImageExperiment):
         for fold in range(self.num_folds):
             data_list = self.data_arranger.generate_partitioned_trial_list(window_length=self.window_length,
                                                                            hop_length=self.hop_length, fold=fold,
-                                                                           windowing=True)
+                                                                           windowing=False)
             mean_std_dict[fold] = self.data_arranger.calculate_mean_std(data_list)
 
         save_to_pickle(path, mean_std_dict, replace=True)

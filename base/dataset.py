@@ -11,6 +11,9 @@ from base.utils import load_npy
 
 import pandas as pd
 
+from PIL import Image
+from torchvision import transforms
+
 
 # def csv2npy(csv_path):
 #     arr = np.loadtxt(csv_path, delimiter=';')
@@ -38,12 +41,13 @@ class GenericDataArranger(object):
         self.trial_list = self.generate_raw_trial_list(dataset_path)
         self.partition_range = self.partition_range_fn()
         self.fold_to_partition = self.assign_fold_to_partition()
+        # import ipdb; ipdb.set_trace()
 
     def generate_iterator(self):
         iterator = self.dataset_info['partition']
         return iterator
 
-    def generate_partitioned_trial_list(self, window_length, hop_length, fold, windowing=True):
+    def generate_partitioned_trial_list(self, window_length, hop_length, fold, windowing=False):
 
         train_validate_range = self.partition_range['train'] + self.partition_range['validate']
         
@@ -51,14 +55,16 @@ class GenericDataArranger(object):
         print("fold:", fold)
         
         assert  len(train_validate_range) == self.fold_to_partition['train'] + self.fold_to_partition['validate']
-
+        # partition_range에 갈라놓은 index들을 fold만큼 민다
         partition_range = list(np.roll(train_validate_range, fold))
+        # 그러고 뒤에 테스트셋 추가
         partition_range += self.partition_range['test']
         partitioned_trial = {}
 
+        # 'train', 7 
         for partition, num_fold in self.fold_to_partition.items():
             partitioned_trial[partition] = []
-
+            # import ipdb; ipdb.set_trace()
             for i in range(num_fold):
                 index = partition_range.pop(0)
                 trial_of_this_fold = list(itemgetter(*index)(self.trial_list))
@@ -69,7 +75,7 @@ class GenericDataArranger(object):
                 for path, trial, length in trial_of_this_fold:
                     if not windowing:
                         window_length = length
-
+                    # import ipdb; ipdb.set_trace()
                     windowed_indices = self.windowing(np.arange(length), window_length=window_length,
                                                       hop_length=hop_length)
 
@@ -243,13 +249,9 @@ class GenericDataset(Dataset):
             # print(f"Loading feature: {feature}")  # 이거 추가
             examples[feature] = self.get_example(path, length, index, feature)
         examples['labels'] = label
-        
 
-        if len(index) < self.window_length:
-            index = np.arange(self.window_length)
-            
-        
-        import ipdb; ipdb.set_trace()
+        # if len(index) < self.window_length:
+        #     index = np.arange(self.window_length) # we are not using window length
 
         return examples, trial, length, index
 
@@ -262,15 +264,24 @@ class GenericDataset(Dataset):
         random_index = index * self.multiplier[feature] + x
 
         # Probably, a trial may be shorter than the window, so the zero padding is employed.
-        if length < self.window_length:
-            shape = (self.window_length,) + self.feature_dimension[feature]
-            dtype = np.float32
-            if feature == "video":
-                dtype = np.int8
-            example = np.zeros(shape=shape, dtype=dtype)
-            example[index] = self.load_data(path, random_index, feature)
+        # if length < self.window_length:
+        #     shape = list((self.window_length,) + self.feature_dimension[feature])
+        #     if feature == "video":
+        #         shape[1], shape[3] = shape[3], shape[1]
+        #     dtype = np.float32
+        #     if feature == "video":
+        #         dtype = np.int8
+        #     example = np.zeros(shape=shape, dtype=dtype)
+        #     import ipdb; ipdb.set_trace()
+        #     if feature == "video":
+        #         example[index] = self.load_video_data(path, random_index, feature)
+        #     else:
+        #         example[index] = self.load_audio_data(path, random_index, feature)
+        # else:
+        if feature == "video":
+            example = self.load_video_data(path, random_index, feature)
         else:
-            example = self.load_data(path, random_index, feature)
+            example = self.load_audio_data(path, random_index, feature)
 
         # Sometimes we may want to shift the label, so that
         # the ith label point  corresponds to the (i - time_delay)-th data point.
@@ -280,25 +291,57 @@ class GenericDataset(Dataset):
                  np.repeat(example[-1, :][np.newaxis], repeats=self.time_delay, axis=0)), axis=0)
 
         if "continuous_label" not in feature:
-            example = self.transform_dict[feature](np.asarray(example, dtype=np.float32))
-
+            # example = self.transform_dict[feature](np.asarray(example, dtype=np.float32))
+            # already convert into tensor in load_data
+            pass
+        
         return example
+    
+    def load_video_data(self, path, indices, feature):
+        imgs=[]
+        for i in indices:
+            jpg_filename = os.path.join('agi', 'cropped_aligned', os.path.basename(path), f'{i:05d}.jpg')
+            img = Image.open(jpg_filename).convert("RGB")
 
-    def load_data(self, path, indices, feature):
-        filename = os.path.join(path, feature + ".npy")
-
-        # For the test set, labels of zeros are generated as dummies.
-        data = np.zeros(((len(indices),) + self.feature_dimension[feature]), dtype=np.float32)
-
-        if os.path.isfile(filename):
-            if self.feature_extraction:
-                data = np.load(filename, mmap_mode='c')
-            else:
-                data = np.load(filename, mmap_mode='c')[indices]
-
-            if "continuous_label" in feature:
-                data = self.processing_label(data)
+            transform = transforms.Compose([
+                transforms.ToTensor(),
+                transforms.Resize((40, 40)),
+                transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+            ])
+            img_tensor = transform(img)
+            img_tensor = img_tensor.unsqueeze(0)
+            imgs.append(img_tensor)
+        data = torch.cat(imgs, dim=0)
         return data
+    
+    def load_audio_data(self, path, indices, feature):
+        path = path.replace('cropped_aligned', 'vggish').replace('_aligned', '')
+        filename = path + '.csv'
+        # For the test set, labels of zeros are generated as dummies.
+        
+        length = len(indices)
+        
+        arr = np.loadtxt(filename, delimiter=';')
+        if arr.shape[0] > length:
+            arr = arr[:length]
+        elif arr.shape[0] < length:
+            padding = np.repeat(arr[-1:, :], length - arr.shape[0], axis=0)
+            arr = np.concatenate([arr, padding], axis=0)  # padding for last index access
+
+        return arr
+
+    # def load_data(self, path, indices, feature):
+    #         filename = os.path.join(path, feature + ".npy")
+    #         # For the test set, labels of zeros are generated as dummies.
+    #         data = np.zeros(((300,) + self.feature_dimension[feature]), dtype=np.float32)
+    #         if os.path.isfile(filename):
+    #             if self.feature_extraction:
+    #                 data = np.load(filename, mmap_mode='c')
+    #             else:
+    #                 data = np.load(filename, mmap_mode='c')[indices]
+    #             if "continuous_label" in feature:
+    #                 data = self.processing_label(data)
+    #         return data
 
     def processing_label(self, label):
         label = label[:, self.continuous_label_dim]

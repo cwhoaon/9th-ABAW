@@ -12,6 +12,7 @@ from base.parameter_control import ResnetParamControl
 import os
 import numpy as np
 import pandas as pd
+import glob
 
 
 class Experiment(GenericExperiment):
@@ -32,6 +33,7 @@ class Experiment(GenericExperiment):
         self.tcn_kernel_size = args.tcn_kernel_size
         
         self.label_path = args.label_path
+        self.image_path = args.image_path
         self.labels = pd.read_csv(self.label_path)
         
         
@@ -46,11 +48,11 @@ class Experiment(GenericExperiment):
         self.get_modality()
         self.continuous_label_dim = self.get_selected_continuous_label_dim()
 
-        self.dataset_info = load_pickle(os.path.join(self.dataset_path, "dataset_info.pkl"))
+        self.dataset_info = load_pickle(os.path.join(self.dataset_path, "dataset_info_new.pkl"))
         self.data_arranger = self.init_data_arranger()
         if self.calc_mean_std:
             self.calc_mean_std_fn()
-        self.mean_std_dict = load_pickle(os.path.join(self.dataset_path, "mean_std_info.pkl"))
+        self.mean_std_dict = load_pickle(os.path.join(self.dataset_path, "mean_std_info_new.pkl"))
 
     def init_data_arranger(self):
         arranger = DataArranger(self.dataset_info, self.dataset_path, self.debug)
@@ -101,15 +103,25 @@ class Experiment(GenericExperiment):
                 trainer.fit(dataloaders, parameter_controller=parameter_controller,
                             checkpoint_controller=checkpoint_controller)
 
-            test_kwargs = {'dataloader_dict': dataloaders, 'epoch': None, 'partition': 'extra'}
+            test_kwargs = {'dataloader_dict': dataloaders, 'epoch': None, 'partition': 'validate'}
             trainer.test(checkpoint_controller, predict_only=1, **test_kwargs)
 
     def init_dataset(self, data, continuous_label_dim, mode, fold):
         for i in range(len(data)):
             vid, cid = get_vid_cid(data[i][1])
+            image_path = os.path.join(self.image_path, f'{data[i][1]}_aligned')
+            length = len(glob.glob(os.path.join(image_path, "*.jpg")))
+            
+            data[i][0] = image_path
+            data[i][2] = length
+            data[i][3] = np.arange(length)
+            
             row = self.labels.loc[(self.labels["video_id"] == vid) & (self.labels["clip_id"] == int(cid))].iloc[0]
+            
+            
             row = row.to_numpy()[5:].astype(np.float32)
             data[i].append(row)
+        
         
         dataset = Dataset(data, continuous_label_dim, self.modality, self.multiplier,
                           self.feature_dimension, self.window_length,

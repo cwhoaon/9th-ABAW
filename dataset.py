@@ -23,8 +23,9 @@ class DataArranger(GenericDataArranger):
 
     def partition_range_fn(self):
         partition_range = {
-            'train': [np.arange(0,2)],
-            'validate': [np.arange(2,4)],
+            'train': [np.arange(0,2000), np.arange(2000,4000), np.arange(4000,6000), np.arange(6000,8000), 
+                      np.arange(8000,10000), np.arange(10000,12000), np.arange(12000,14000)],
+            'validate': [np.arange(14000,16000)],
             'test': [],
         }
 
@@ -51,7 +52,7 @@ class DataArranger(GenericDataArranger):
 
     @staticmethod
     def assign_fold_to_partition():
-        fold_to_partition = {'train': 1, 'validate': 1, 'test': 0}
+        fold_to_partition = {'train': 7, 'validate': 1, 'test': 0}
         return fold_to_partition
 
 

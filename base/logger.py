@@ -113,8 +113,7 @@ class ContinuousOutputHandler(object):
             length = len(self.trialwise_records[trial])
 
             for i in range(length):
-                self.trialwise_records[trial][i] = statistics.mean(
-                    self.trialwise_records[trial][i])
+                self.trialwise_records[trial][i] = statistics.mean(self.trialwise_records[trial][i])
                 
             # for i in range(length):
             #     # ✅ 빈 리스트 체크 후 평균값 계산

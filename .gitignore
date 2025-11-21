@@ -6,3 +6,8 @@ preprocessing/load/vosk-model-en-us-0.22
 *.ipynb
 output/
 pretrained_model/
+
+simple_processor/pretrained_model
+simple_processor/vosk-model-en-us-0.22/
+simple_processor/raw/
+simple_processor/processed_data/

@@ -5,33 +5,33 @@ import subprocess
 import numpy as np
 from pathlib import Path
 import wave, json
-
-from simple_processor.vggish import vggish_input
-from simple_processor.facial_landmark import facial_image_crop_by_landmark, FacenetController
-from simple_processor.vggish.vggish import VGGish
-from simple_processor.vggish.hubconf import model_urls
-from facenet_pytorch import MTCNN
-from deepmultilingualpunctuation import PunctuationModel
 from vosk import Model, KaldiRecognizer
 import soundfile as sf
 import pandas as pd
-from simple_processor.speech import extract_transcript
+
+from vggish import vggish_input
+from facial_landmark import facial_image_crop_by_landmark, FacenetController
+from vggish.vggish import VGGish
+from vggish.hubconf import model_urls
+from facenet_pytorch import MTCNN
+from deepmultilingualpunctuation import PunctuationModel
+from speech import extract_transcript
 
 class RawProcess:
-    def __init__(self, device, video_path, data_path, data_name):
+    def __init__(self, device, data_path, data_name):
         super().__init__()
         self.device = device
-        self.video_path = video_path
+        # self.video_path = video_path
         self.data_path = data_path
         self.data_name = data_name
 
-        video = cv2.VideoCapture(self.video_path)
+        # video = cv2.VideoCapture(self.video_path)
 
         # self.wav_path = os.path.join(self.data_path, self.data_name + ".wav")
         # self.vggish_path = os.path.join(self.data_path, "vggish", self.data_name + ".csv")
 
-        self.fps = video.get(cv2.CAP_PROP_FPS)
-        self.frame_count = int(video.get(cv2.CAP_PROP_FRAME_COUNT))
+        # self.fps = video.get(cv2.CAP_PROP_FPS)
+        # self.frame_count = int(video.get(cv2.CAP_PROP_FRAME_COUNT))
 
         self.vggish_model = self.load_vggish_model()
         self.mtcnn, self.face_landmark_detector = self.load_mtcnn_model()
@@ -39,7 +39,16 @@ class RawProcess:
 
         
 
-    def preprocess(self):
+    def preprocess(self, video_path):
+        self.video_path = video_path
+        video = cv2.VideoCapture(self.video_path)
+
+        self.wav_path = os.path.join(self.data_path, self.data_name + ".wav")
+        self.vggish_path = os.path.join(self.data_path, "vggish", self.data_name + ".csv")
+
+        self.fps = video.get(cv2.CAP_PROP_FPS)
+        self.frame_count = int(video.get(cv2.CAP_PROP_FRAME_COUNT))
+        
         self.wav_path = self.convert_video_to_wav(self.video_path, self.data_path, self.data_name, target_frequency=16000)
         # new로 전달, vgg csv는 저장 안할거
         self.vggish_path, new = self.extract_vggish(self.wav_path, self.data_path, self.data_name, self.vggish_model)
@@ -71,9 +80,9 @@ class RawProcess:
     def convert_video_to_wav(self, input_path, data_path, data_name, target_frequency=16000):
         output_path = os.path.join(data_path, data_name, "audio.wav")
 
-        if os.path.isfile(output_path):
-            print("WAV file already exists, skipping conversion.")
-            return output_path
+        # if os.path.isfile(output_path):
+        #     print("WAV file already exists, skipping conversion.")
+        #     return output_path
         
         self.ensure_dir(output_path)
         # ffmpeg command to execute
@@ -94,9 +103,9 @@ class RawProcess:
 
         output_path = os.path.join(data_path, data_name, "vggish.csv")
 
-        if os.path.isfile(output_path):
-            print("VGGish features already exist, skipping extraction.")
-            return output_path
+        # if os.path.isfile(output_path):
+        #     print("VGGish features already exist, skipping extraction.")
+        #     return output_path
 
         examples_batch = vggish_input.wavfile_to_examples(input_path, window_sec=0.96, hop_sec=hop_sec)
 

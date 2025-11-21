@@ -22,6 +22,7 @@ if __name__ == '__main__':
     parser.add_argument('-load_path', default='pretrained_model', type=str,
                         help='The path to load the trained models, such as the backbone.')  # /scratch/users/ntu/su012/pretrained_model
     parser.add_argument('-label_path', default='agi/merged_label.csv', type=str,)
+    parser.add_argument('-image_path', default='agi/cropped_aligned', type=str,)
     parser.add_argument('-save_path', default='output', type=str,
                         help='The path to save the trained models ')  # /scratch/users/ntu/su012/trained_model
     parser.add_argument('-python_package_path', default='./', type=str,

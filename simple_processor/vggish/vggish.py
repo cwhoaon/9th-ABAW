@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 from torch import hub
 
-from simple_processor.vggish import vggish_params
+from vggish import vggish_params
 
 
 class VGG(nn.Module):
