@@ -2,7 +2,7 @@ import ipdb
 from models.arcface_model import Backbone
 from models.temporal_convolutional_model import TemporalConvNet
 from models.transformer import MultimodalTransformerEncoder, IntraModalTransformerEncoder, InterModalTransformerEncoder
-from models.backbone import VisualBackbone, AudioBackbone
+from models.backbone import VisualBackbone, AudioBackbone, VisualBackboneSmall
 from .av_crossatten import DCNLayer
 from .TAGF import TAGF
 
@@ -246,7 +246,8 @@ class LFAN(nn.Module):
                  embedding_dim={'video': 512,  'bert': 768, 'cnn_res50': 512, 'mfcc': 39, 'vggish': 128, 'logmel': 128, 'egemaps': 88},
                  encoder_dim={'video': 128, 'bert': 128, 'cnn_res50': 128, 'mfcc': 32, 'vggish': 32, 'logmel': 32, 'egemaps': 32},
                  modal_dim=32, num_heads=2,
-                 root_dir='', device='cuda'):
+                 root_dir='', device='cuda', 
+                 reduce_frame_level_features=False, simple_gate=False, visual_backbone_type="resnet50"):
         super().__init__()
         self.backbone_settings = backbone_settings
         self.root_dir = root_dir
@@ -267,19 +268,27 @@ class LFAN(nn.Module):
         #self.final_dim = self.encoder_dim[self.modality[0]] + self.encoder_dim[self.modality[1]] + self.encoder_dim[self.modality[2]]
         self.spatial = nn.ModuleDict()
         self.bn = nn.ModuleDict()
+        self.reduce_frame_level_features = reduce_frame_level_features
+        self.simple_gate = simple_gate
+        self.visual_backbone_type = visual_backbone_type
 
 
     def load_visual_backbone(self, backbone_settings):
+        if self.visual_backbone_type == "resnet50":
+            backbone = VisualBackbone(mode='ir', use_pretrained=False)
+            state_dict = torch.load(os.path.join(self.root_dir, backbone_settings['visual_state_dict'] + ".pth"),
+                                    map_location='cpu')
+            backbone.load_state_dict(state_dict)
+        else:
+            backbone = VisualBackboneSmall(
+                use_pretrained=True,    
+                backbone_type=self.visual_backbone_type,
+            )
 
-        resnet = VisualBackbone(mode='ir', use_pretrained=False)
-        state_dict = torch.load(os.path.join(self.root_dir, backbone_settings['visual_state_dict'] + ".pth"),
-                                map_location='cpu')
-        resnet.load_state_dict(state_dict)
-
-        for param in resnet.parameters():
+        for param in backbone.parameters():
             param.requires_grad = False
 
-        return resnet
+        return backbone
 
     def load_audio_backbone(self, backbone_settings):
 
@@ -314,14 +323,17 @@ class LFAN(nn.Module):
                                                    kernel_size=self.kernel_size, dropout=0.1).to(self.device)
             self.bn[modal] = BatchNorm1d(self.tcn_channel[modal][-1])
 
-        self.TAGF = TAGF()
+        self.TAGF = TAGF(reduce_frame_level_features=self.reduce_frame_level_features, simple_gate=self.simple_gate)
 
         self.regressor1 = nn.Linear(384, 256)
         self.bn1 = BatchNorm1d(256)
-        self.regressor2 = nn.Linear(256, self.output_dim)
+        # self.regressor2 = nn.Linear(256, self.output_dim)
+        self.head0 = nn.Linear(256, 19)
 
+        # 1~6번째 차원용: 각 4-class → 6 * 4 = 24개 출력 후 reshape
+        self.head_rest = nn.Linear(256, 6 * 4)
 
-    def forward(self, X):
+    def forward(self, X, mask):
 
         if 'video' in X:
             batch_size, length, channel, width, height = X['video'].shape
@@ -347,21 +359,29 @@ class LFAN(nn.Module):
             X[modal] = self.bn[modal](X[modal]).transpose(1, 2)
            
 
-        c = self.TAGF(X['video'], X['logmel'])
+        c = self.TAGF(X['video'], X['logmel'], mask)
         #video, audio, text = self.coattn(X['video'], X['logmel'], X['bert'])
         #follower = self.fusion(X)
         #c = torch.cat((video, audio, text), dim=-1)
-       
-        c = self.regressor1(c).transpose(1, 2)
-        c = self.bn1(c).transpose(1, 2)
+
+        if self.reduce_frame_level_features is False:
+            c = self.regressor1(c).transpose(1, 2)
+            c = self.bn1(c).transpose(1, 2)
+        else:
+            c = self.regressor1(c)
+            c = self.bn1(c)
         c = F.leaky_relu(c)
-        c = self.regressor2(c)
+        # c = self.regressor2(c)
+        logits0 = self.head0(c)
+        B, L = logits0.shape[0], logits0.shape[1]  # (B, 19)
+        logits_rest = self.head_rest(c)               # (B, 24)
+        logits_rest = logits_rest.view(B, L, 6, 4)      # (B, 6, 4)
         # c = torch.tanh(c)
         #X = torch.cat((X[self.modality[0]], follower), dim=-1)
         #X = self.regressor(X)
         #X = X.view(batch_size, self.example_length, -1)
         #X = torch.tanh(X)
-        return c
+        return logits0, logits_rest
 
 
 class AttentionFusion(nn.Module):

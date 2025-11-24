@@ -13,6 +13,7 @@ import os
 import numpy as np
 import pandas as pd
 import glob
+import wandb
 
 
 class Experiment(GenericExperiment):
@@ -37,7 +38,6 @@ class Experiment(GenericExperiment):
         self.labels = pd.read_csv(self.label_path)
         
         
-        
     def prepare(self):
         self.config = self.get_config()
 
@@ -48,12 +48,15 @@ class Experiment(GenericExperiment):
         self.get_modality()
         self.continuous_label_dim = self.get_selected_continuous_label_dim()
 
-        self.dataset_info = load_pickle(os.path.join(self.dataset_path, "dataset_info_new.pkl"))
+        self.dataset_info = load_pickle(os.path.join(self.dataset_path, "dataset_info_refined.pkl"))
         self.data_arranger = self.init_data_arranger()
         if self.calc_mean_std:
             self.calc_mean_std_fn()
         self.mean_std_dict = load_pickle(os.path.join(self.dataset_path, "mean_std_info_new.pkl"))
-
+        
+        if not self.args.no_wandb:
+            wandb.init(project=self.args.wandb_project, name=self.args.wandb_exp, entity=self.args.wandb_entity, config=self.args)
+            
     def init_data_arranger(self):
         arranger = DataArranger(self.dataset_info, self.dataset_path, self.debug)
         return arranger
@@ -64,12 +67,13 @@ class Experiment(GenericExperiment):
 
         for fold in iter(self.folds_to_run):
 
-            save_path = os.path.join(self.save_path,
-                                     self.experiment_name + "_" + self.model_name + "_" + self.stamp + "_fold" + str(
-                                         fold) + "_" + self.emotion +  "_seed" + str(self.seed))
+            # save_path = os.path.join(self.save_path,
+            #                          self.experiment_name + "_" + self.model_name + "_" + self.stamp + "_fold" + str(
+            #                              fold) + "_" + self.emotion +  "_seed" + str(self.seed))
+            save_path = os.path.join(self.save_path, self.args.wandb_exp + "_fold" + str(fold))
             os.makedirs(save_path, exist_ok=True)
 
-            checkpoint_filename = os.path.join(save_path, "checkpoint.pkl")
+            # checkpoint_filename = os.path.join(save_path, "checkpoint.pkl")
 
             model = self.init_model()
 
@@ -84,20 +88,25 @@ class Experiment(GenericExperiment):
                               'criterion': criterion, 'factor': self.factor, 'verbose': True,
                               'milestone': self.milestone, 'metrics': self.config['metrics'],
                               'load_best_at_each_epoch': self.load_best_at_each_epoch,
-                              'save_plot': self.config['save_plot']}
+                              'save_plot': self.config['save_plot'], 'no_wandb': self.args.no_wandb,
+                              'use_scheduler': self.args.use_scheduler, 'reduce_frame_level_features': self.args.reduce_frame_level_features}
 
             trainer = Trainer(**trainer_kwards)
+            trainer.init_optimizer_and_scheduler(epoch=0)
 
-            parameter_controller = ResnetParamControl(trainer, gradual_release=self.gradual_release,
-                                                      release_count=self.release_count,
-                                                      backbone_mode=["visual", "audio"])
+            # parameter_controller = ResnetParamControl(trainer, gradual_release=self.gradual_release,
+            #                                           release_count=self.release_count,
+            #                                           backbone_mode=["visual", "audio"])
+            parameter_controller = None
 
-            checkpoint_controller = Checkpointer(checkpoint_filename, trainer, parameter_controller, resume=self.resume)
+            # checkpoint_controller = Checkpointer(checkpoint_filename, trainer, parameter_controller, resume=self.resume)
+            checkpoint_controller = None
 
             if self.resume:
                 trainer, parameter_controller = checkpoint_controller.load_checkpoint()
             else:
-                checkpoint_controller.init_csv_logger(self.args, self.config)
+                pass
+                # checkpoint_controller.init_csv_logger(self.args, self.config)
 
             if not trainer.fit_finished:
                 trainer.fit(dataloaders, parameter_controller=parameter_controller,
@@ -139,11 +148,12 @@ class Experiment(GenericExperiment):
                                                    modality=modality, example_length=self.window_length,
                                                    kernel_size=self.tcn_kernel_size,
                                                    tcn_channel=self.config['tcn']['channels'], modal_dim=self.modal_dim, num_heads=self.num_heads,
-                                                   root_dir=self.load_path, device=self.device)
+                                                   root_dir=self.load_path, device=self.device, reduce_frame_level_features=self.args.reduce_frame_level_features,
+                                                   simple_gate=self.args.simple_gate, visual_backbone_type=self.args.visual_backbone_type)
             model.init()
         elif self.model_name == "CAN":
-            model = CAN(root_dir=self.load_path, modalities=modality, tcn_settings=self.config['tcn_settings'], backbone_settings=self.config['backbone_settings'], output_dim=len(self.continuous_label_dim), device=self.device)
-
+            model = CAN(root_dir=self.load_path, modalities=modality, tcn_settings=self.config['tcn_settings'], backbone_settings=self.config['backbone_settings'], output_dim=len(self.continuous_label_dim), device=self.device)     
+               
         return model
 
     def get_modality(self):

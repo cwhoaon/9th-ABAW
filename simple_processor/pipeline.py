@@ -4,6 +4,7 @@ from torch import nn
 import os
 import numpy as np
 import einops
+from einops import *
 
 from models.model import LFAN
 from raw_process import RawProcess
@@ -12,7 +13,7 @@ import torchvision.transforms as transforms
     
 
 class Pipeline(nn.Module):
-    def __init__(self, device, data_path, data_name):
+    def __init__(self, device, data_path, data_name, backbone_path, backbone_setting):
         super(Pipeline, self).__init__()
         self.device = device
         # self.video_path = video_path
@@ -29,11 +30,19 @@ class Pipeline(nn.Module):
             modal_dim=32, 
             num_heads=2,
             root_dir='pretrained_model', 
-            device=self.device
+            device=self.device,
+            reduce_frame_level_features=backbone_setting['reduce_frame_level_features'],
+            simple_gate=backbone_setting['simple_gate'],
+            visual_backbone_type=backbone_setting['visual_backbone_type'],
         )
         self.model.init()
+        trained_state_dict = torch.load(backbone_path)
+        a, b = self.model.load_state_dict(trained_state_dict, strict=False)
+        print(a, b)
         self.model.to(self.device)
         self.model.eval()
+
+
 
     def forward(self, video_path):
         # video_path: path to the input video file
@@ -44,9 +53,8 @@ class Pipeline(nn.Module):
         
         vggish = processed_data
         video = self.load_video_data()
-        
-        length = min(video.shape[2], vggish.shape[1])
-        
+
+        length = min(video.shape[0], vggish.shape[0])
         vggish = einops.rearrange(torch.tensor(vggish), 't d -> 1 1 t d')
         # pad with last frame to make length 300
         if vggish.shape[2] < 300:
@@ -69,10 +77,16 @@ class Pipeline(nn.Module):
             'vggish': vggish.to(self.device),
         }
         
-        output = self.model(X)
-        output = output[0, :length].mean(dim=0)
+        B, T = X['video'].shape[0], X['video'].shape[1]
+        true_length = torch.tensor([length]).to(self.device)
+        mask = repeat(torch.arange(T), 't -> b t', b=B).to(self.device)
+        mask = (mask < rearrange(true_length, 'b -> b 1')) # [B, T]
+
+        output0, output_rest = self.model(X, mask)
+        o0 = output0[0, :length].mean(dim=0)
+        orest = output_rest[0, :length].mean(dim=0)
         
-        return output
+        return o0, orest
     
     def load_video_data(self):
         path = os.path.join(self.data_path, self.data_name, 'frames')

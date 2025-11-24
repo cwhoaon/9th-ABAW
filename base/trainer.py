@@ -8,6 +8,7 @@ import time
 import copy
 import os
 from tqdm import tqdm
+from einops import *
 
 
 import pandas as pd
@@ -15,6 +16,7 @@ import pandas as pd
 import numpy as np
 import torch
 from torch import optim
+import wandb
 
 
 class GenericTrainer(object):
@@ -38,22 +40,22 @@ class GenericTrainer(object):
         self.verbose = kwargs['verbose']
         self.milestone = kwargs['milestone']
         self.load_best_at_each_epoch = kwargs['load_best_at_each_epoch']
+        self.use_scheduler = kwargs['use_scheduler']
 
         self.optimizer, self.scheduler = None, None
 
     def train(self, **kwargs):
         kwargs['train_mode'] = True
         self.model.train()
-        loss, result_dict = self.loop(**kwargs)
-        return loss, result_dict
+        loss = self.loop(**kwargs)
+        return loss
 
     def validate(self, **kwargs):
-
         kwargs['train_mode'] = False
         with torch.no_grad():
             self.model.eval()
-            loss, result_dict = self.loop(**kwargs)
-        return loss, result_dict
+            loss = self.loop(**kwargs)
+        return loss
 
     def test(self, checkpoint_controller, predict_only=0, **kwargs):
         kwargs['train_mode'] = False
@@ -64,11 +66,11 @@ class GenericTrainer(object):
             if predict_only:
                 self.predict_loop(**kwargs)
             else:
-                loss, result_dict = self.loop(**kwargs)
+                loss = self.loop(**kwargs)
                 checkpoint_controller.save_log_to_csv(
-                    kwargs['epoch'], mean_train_record=None, mean_validate_record=None, test_record=result_dict['overall'])
+                    kwargs['epoch'], mean_train_record=None, mean_validate_record=None, test_record=None)
 
-                return loss, result_dict
+                return loss
 
     def fit(self, **kwargs):
         raise NotImplementedError
@@ -109,6 +111,7 @@ class GenericVideoTrainer(GenericTrainer):
         self.validate_losses = []
         self.csv_filename = None
         self.best_epoch_info = None
+        self.global_step = 0
 
 
     def fit(self, dataloader_dict, checkpoint_controller, parameter_controller):
@@ -124,7 +127,6 @@ class GenericVideoTrainer(GenericTrainer):
             self.best_epoch_info = {
                 'model_weights': copy.deepcopy(self.model.state_dict()),
                 'loss': 1e10,
-                'ccc': -1e10
             }
 
         for epoch in np.arange(start_epoch, self.max_epoch):
@@ -150,29 +152,21 @@ class GenericVideoTrainer(GenericTrainer):
 
             # Get the losses and the record dictionaries for training and validation.
             train_kwargs = {"dataloader_dict": dataloader_dict, "epoch": epoch}
-            train_loss, train_record_dict = self.train(**train_kwargs)
+            train_loss = self.train(**train_kwargs)
 
             validate_kwargs = {"dataloader_dict": dataloader_dict, "epoch": epoch}
-            validate_loss, validate_record_dict = self.validate(**validate_kwargs)
-
-            # if epoch % 2 == 0:
-            #     test_kwargs = {"dataloader_dict": dataloader_dict, "epoch": None, "train_mode": 0}
-            #     validate_loss, test_record_dict = self.test(checkpoint_controller=checkpoint_controller, feature_extraction=0, **test_kwargs)
-            #     print(test_record_dict['overall']['ccc'])
+            validate_loss = self.validate(**validate_kwargs)
 
             self.train_losses.append(train_loss)
             self.validate_losses.append(validate_loss)
 
-            validate_ccc = validate_record_dict['overall']['ccc']
-
-            if validate_ccc > self.best_epoch_info['ccc']:
+            if validate_loss < self.best_epoch_info['loss']:
                 torch.save(self.model.state_dict(), os.path.join(self.save_path, "model_state_dict.pth"))
 
                 improvement = True
                 self.best_epoch_info = {
                     'model_weights': copy.deepcopy(self.model.state_dict()),
                     'loss': validate_loss,
-                    'ccc': validate_ccc,
                     'epoch': epoch,
                 }
 
@@ -191,12 +185,8 @@ class GenericVideoTrainer(GenericTrainer):
                         improvement,
                         self.early_stopping_counter))
 
-                print(train_record_dict['overall'])
-                print(validate_record_dict['overall'])
-                print("------")
-
-            checkpoint_controller.save_log_to_csv(
-                epoch, train_record_dict['overall'], validate_record_dict['overall'])
+            # checkpoint_controller.save_log_to_csv(
+            #     epoch, train_record_dict['overall'], validate_record_dict['overall'])
 
             # Early stopping controller.
             if self.early_stopping and epoch > self.min_epoch:
@@ -235,20 +225,14 @@ class GenericVideoTrainer(GenericTrainer):
         total_batch_counter = 0
         inputs = {}
 
-        output_handler = ContinuousOutputHandler()
-        continuous_label_handler = ContinuousOutputHandler()
-
-        metric_handler = ContinuousMetricsCalculator(self.metrics, self.emotion,
-                                                     output_handler, continuous_label_handler)
-
         num_batch_warm_up = len(dataloader) * self.min_epoch
-
         for batch_idx, (X, trials, lengths, indices, true_length) in tqdm(enumerate(dataloader), total=len(dataloader)):
             # if batch_idx < 157:
             #     continue
             
             if train_mode:
-                self.scheduler.warmup_lr(self.learning_rate, batch_idx,  num_batch_warm_up)
+                if self.use_scheduler:
+                    self.scheduler.warmup_lr(self.learning_rate, self.global_step,  num_batch_warm_up)
 
             total_batch_counter += len(trials)
 
@@ -264,77 +248,84 @@ class GenericVideoTrainer(GenericTrainer):
 
             if len(torch.flatten(labels)) == self.batch_size:
                 labels = torch.zeros((self.batch_size, len(indices[0]), 1), dtype=torch.float32).to(self.device)
+                
+            true_length = true_length.to(self.device)
+            B, T = X['video'].shape[0], X['video'].shape[1]
+            mask = repeat(torch.arange(T), 't -> b t', b=B).to(self.device)
+            mask = (mask < rearrange(true_length, 'b -> b 1')) # [B, T]
+            # mask = rearrange(mask, 'b t -> b t')
 
             if train_mode:
                 self.optimizer.zero_grad()
-            outputs = self.model(inputs)
+            # output= self.model(inputs, mask=mask)
+            logits0, logits_rest = self.model(inputs, mask=mask)
             
+            # if not self.reduce_frame_level_features:
+            #     outputs = outputs * rearrange(mask, 'b t -> b t 1')
+            #     outputs = reduce(outputs, 'b t d -> b d', 'sum') / rearrange(true_length, 'b -> b 1')
+            if not self.reduce_frame_level_features:
+                logits0 = logits0 * rearrange(mask, 'b t -> b t 1')
+                logits0 = torch.sum(logits0, dim=1) / rearrange(true_length, 'b -> b 1')
+
+                logits_rest = logits_rest * rearrange(mask, 'b t -> b t 1 1')
+                logits_rest = torch.sum(logits_rest, dim=1) / rearrange(true_length, 'b -> b 1 1')
             
-            outputs[:,:,0].clamp(-1.0, 1.0)
-            outputs[:,:,1:].clamp(0.0, 1.0)
-            
-            # mask with true_length
-            mask = torch.zeros_like(outputs)
-            for i, l in enumerate(true_length):
-                mask[i, :l, :] = 1.0
-            outputs = outputs * mask
-            
-            B, w, d = outputs.shape
-            labels = einops.repeat(labels, "b d -> b w d", w=w) / 3
-            
-            loss = self.criterion(labels, outputs)
+            levels0 = torch.tensor([
+                -3.00, -2.66, -2.33, -2.00, -1.66, -1.33, -1.00, -0.66, -0.33,
+                0.00,
+                0.33,  0.66,  1.00,  1.33,  1.66,  2.00,  2.33,  2.66,  3.00
+            ], device=self.device)  # 19개
+
+            levels_rest = torch.tensor([0.00, 0.33, 0.66, 1.00], device=self.device)  # 4개
+            # logits0 = output0[:, 0]
+            # idx0 = torch.argmin(torch.abs(logits0.unsqueeze(1) - levels0.to(self.device)), dim=-1)
+            # logits_rest = output[:, 1:]
+            # diff = logits_rest.unsqueeze(1) - levels_rest.to(self.device)
+            # idx_rest = torch.argmin(torch.abs(diff), dim=-1)
+            labels = labels.to(self.device)
+            idx0 = torch.argmin(
+                torch.abs(labels[:, 0].unsqueeze(-1) - levels0),  # (B,19)
+                dim=-1
+            )  # (B,)
+            idx0 = idx0.long()
+
+            # dim1~6: (B,6) → 각 위치마다 4개 레벨 중 가장 가까운 index
+            # labels[:,1:]: (B,6)
+            diff = labels[:, 1:].unsqueeze(-1) - levels_rest  # (B,6,4)
+            idx_rest = torch.argmin(torch.abs(diff), dim=-1)  # (B,6)
+            idx_rest = idx_rest.long()
+
+
+            # 0번째 차원 Loss (19-class CE + class weight)
+            loss0 = torch.nn.functional.cross_entropy(logits0, idx0)
+            weights_rest = torch.tensor([1/8, 1/2, 1/2, 1/2],device=self.device, dtype=logits_rest.dtype)
+            # 1~6번째 차원 Loss (6개의 4-class CE 평균)
+            loss_rest = torch.nn.functional.cross_entropy(
+            logits_rest.view(-1, 4),      # (B*6, 4)
+            idx_rest.view(-1),            # (B*6,)
+            weight=weights_rest.to(logits_rest.device)
+            )
+            loss = loss0 + loss_rest
+            # loss = self.criterion(labels, outputs)
 
             running_loss += loss.mean().item()
+
+            if train_mode:
+                self.global_step += 1
+                if self.no_wandb is False:
+                    wandb.log({"train/loss": loss.mean().item(), "train/lr": self.optimizer.param_groups[0]['lr'], "epoch": epoch}, step=self.global_step)
 
             if train_mode:
                 loss.backward()
                 self.optimizer.step()
 
-            output_handler.update_output_for_seen_trials(outputs.detach().cpu().numpy(), trials, indices, lengths)
-            continuous_label_handler.update_output_for_seen_trials(labels.detach().cpu().numpy(), trials, indices,
-                                                                   lengths)
-
         epoch_loss = running_loss / total_batch_counter
-
-        output_handler.average_trial_wise_records()
-        continuous_label_handler.average_trial_wise_records()
-
-        output_handler.concat_records()
-        continuous_label_handler.concat_records()
-
-        # Compute the root mean square error, pearson correlation coefficient and significance, and the
-        # concordance correlation coefficient.
-        # They are calculated by  first concatenating all the output
-        # and continuous labels to two long arrays, and then calculate the metrics.
         
-        output_np = outputs.detach().cpu().numpy()
-        print("output stats:", 
-            np.min(output_np), 
-            np.max(output_np), 
-            np.isnan(output_np).sum(), 
-            np.isinf(output_np).sum())
-        label_np = labels.detach().cpu().numpy()
-        print("label stats:", 
-            np.min(label_np), 
-            np.max(label_np), 
-            np.isnan(label_np).sum(), 
-            np.isinf(label_np).sum())
+        if not train_mode:
+            if self.no_wandb is False:
+                wandb.log({"validate/loss": epoch_loss}, step=self.global_step)
 
-        metric_handler.calculate_metrics()
-        epoch_result_dict = metric_handler.metric_record_dict
-
-        metric_handler.save_trial_wise_records(self.save_path, train_mode, epoch)
-
-        if self.save_plot:
-            # This object plot the figures and save them.
-            plot_handler = PlotHandler(self.metrics, self.emotion, epoch_result_dict,
-                                       output_handler.trialwise_records,
-                                       continuous_label_handler.trialwise_records,
-                                       epoch=epoch, train_mode=train_mode,
-                                       directory_to_save_plot=self.save_path)
-            plot_handler.save_output_vs_continuous_label_plot()
-
-        return epoch_loss, epoch_result_dict
+        return epoch_loss
 
     def predict_loop(self, **kwargs):
         partition = kwargs['partition']

@@ -6,6 +6,18 @@ if __name__ == '__main__':
     crop_size = 40 #112 #40
 
     parser = argparse.ArgumentParser(description='Say hello')
+    
+    # wandb settings
+    parser.add_argument('-no_wandb', action='store_true', help='Whether to disable wandb logging.')
+    parser.add_argument('-wandb_project', default='emotion_recongnition', type=str, help='The wandb project name.')
+    parser.add_argument('-wandb_entity', default='agi_kaist', type=str, help='The wandb entity name.')
+    parser.add_argument('-wandb_exp', default='test1', type=str, help='The wandb experiment name.')
+    
+    parser.add_argument('-use_scheduler', action='store_true', help='Whether to use the learning rate scheduler.')
+    parser.add_argument('-reduce_frame_level_features', '-rflf', action='store_true', help='Whether to reduce frame-level features to a single feature vector.')
+    parser.add_argument('-simple_gate', '-sg', action='store_true', help='Whether to use simple gating mechanism instead of LSTM for TAGF module.')
+    parser.add_argument('-visual_backbone_type', '-vbt', type=str, default="resnet50", choices=["resnet18", "mobilenet", "efficientnet", "resnet50"], help='The type of visual backbone model to use.')
+    
 
     # 1. Experiment Setting
     # 1.1. Server
@@ -21,7 +33,7 @@ if __name__ == '__main__':
                         help='The root directory of the preprocessed dataset.')  # /scratch/users/ntu/su012/dataset/mahnob
     parser.add_argument('-load_path', default='pretrained_model', type=str,
                         help='The path to load the trained models, such as the backbone.')  # /scratch/users/ntu/su012/pretrained_model
-    parser.add_argument('-label_path', default='agi/merged_label.csv', type=str,)
+    parser.add_argument('-label_path', default='agi/merged_labels_new.csv', type=str,)
     parser.add_argument('-image_path', default='agi/cropped_aligned', type=str,)
     parser.add_argument('-save_path', default='output', type=str,
                         help='The path to save the trained models ')  # /scratch/users/ntu/su012/trained_model
@@ -71,24 +83,24 @@ if __name__ == '__main__':
 
     # 2.2. Epochs and data
     parser.add_argument('-num_epochs', default=100, type=int, help='The total of epochs to run during training.')
-    parser.add_argument('-min_num_epochs', default=5, type=int, help='The minimum epoch to run at least.')
+    parser.add_argument('-min_num_epochs', default=1, type=int, help='The minimum epoch to run at least.')
     parser.add_argument('-early_stopping', default=50, type=int,
                         help='If no improvement, the number of epoch to run before halting the training')
     parser.add_argument('-window_length', default=300, type=int, help='The length in point number to windowing the data.')
     parser.add_argument('-hop_length', default=200, type=int, help='The step size or stride to move the window.')
-    parser.add_argument('-batch_size', default=12, type=int)
+    parser.add_argument('-batch_size', default=14, type=int)
 
     # 2.1. Scheduler and Parameter Control
     parser.add_argument('-seed', default=3407, type=int)
     parser.add_argument('-scheduler', default='plateau', type=str, help='plateau, cosine')
-    parser.add_argument('-learning_rate', default=1e-4, type=float, help='The initial learning rate.')
+    parser.add_argument('-learning_rate', default=1e-5, type=float, help='The initial learning rate.')
     parser.add_argument('-min_learning_rate', default=1.e-8, type=float, help='The minimum learning rate.')
     parser.add_argument('-patience', default=5, type=int, help='Patience for learning rate changes.')
     parser.add_argument('-factor', default=0.1, type=float, help='The multiplier to decrease the learning rate.')
-    parser.add_argument('-gradual_release', default=1, type=int, help='Whether to gradually release some layers?')
-    parser.add_argument('-release_count', default=3, type=int, help='How many layer groups to release?')
+    parser.add_argument('-gradual_release', default=0, type=int, help='Whether to gradually release some layers?')
+    parser.add_argument('-release_count', default=0, type=int, help='How many layer groups to release?')
     parser.add_argument('-milestone', default=[0], nargs="+", type=int, help='The specific epochs to do something.')
-    parser.add_argument('-load_best_at_each_epoch', default=1, type=int,
+    parser.add_argument('-load_best_at_each_epoch', default=0, type=int,
                         help='Whether to load the best models state at the end of each epoch?')
 
     # 2.2. Groundtruth settings
@@ -96,7 +108,7 @@ if __name__ == '__main__':
                         help='For time_delay=n, it means the n-th label points will be taken as the 1st, and the following ones will be shifted accordingly.'
                              'The rear point will be duplicated to meet the original length.'
                              'This is used to compensate the human labeling delay.')
-    parser.add_argument('-metrics', default=["rmse", "pcc", "ccc"], nargs="*", help='The evaluation metrics.')
+    parser.add_argument('-metrics', default=["rmse"], nargs="*", help='The evaluation metrics.')
     parser.add_argument('-save_plot', default=0, type=int,
                         help='Whether to plot the session-wise output/target or not?')
 

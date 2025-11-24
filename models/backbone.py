@@ -4,7 +4,9 @@ from models.arcface_model import Backbone
 import torch
 from torch import nn
 
+from torchvision import models
 
+from torch.nn.init import xavier_uniform_, constant_
 from torch.nn import Linear, BatchNorm1d, BatchNorm2d, Dropout, Sequential, Module
 
 
@@ -65,6 +67,69 @@ class VGGish(VGG):
         
         x = VGG.forward(self, x)
         return x
+
+
+class VisualBackboneSmall(nn.Module):
+    def __init__(
+        self,
+        input_channels: int = 3,
+        num_classes: int = 8,
+        use_pretrained: bool = True,
+        backbone_type: str = "resnet18",   # "resnet18", "mobilenet_v3_small", "efficientnet_b0"
+        embedding_dim: int = 512,
+        state_dict_path: str = "",
+    ):
+        super().__init__()
+
+        self.backbone_type = backbone_type
+        self.embedding_dim = embedding_dim
+
+        if backbone_type == "resnet18":
+            base = models.resnet18(pretrained=use_pretrained)
+            in_feats = base.fc.in_features
+            base.fc = nn.Identity()
+            self.backbone = base
+
+        elif backbone_type == "mobilenet":
+            base = models.mobilenet_v3_small(pretrained=use_pretrained)
+            in_feats = base.classifier[-1].in_features
+            base.classifier[-1] = nn.Identity()
+            self.backbone = base
+
+        elif backbone_type == "efficientnet":
+            base = models.efficientnet_b0(pretrained=use_pretrained)
+            in_feats = base.classifier[-1].in_features
+            base.classifier[-1] = nn.Identity()
+            self.backbone = base
+
+        else:
+            raise ValueError(f"Unsupported backbone_type: {backbone_type}")
+
+        self.embedding = nn.Linear(in_feats, embedding_dim)
+        self.logits = nn.Linear(embedding_dim, num_classes)
+
+        if state_dict_path:
+            state_dict = torch.load(state_dict_path, map_location="cpu")
+            self.load_state_dict(state_dict, strict=False)
+
+
+        xavier_uniform_(self.embedding.weight)
+        constant_(self.embedding.bias, 0)
+
+        xavier_uniform_(self.logits.weight)
+        constant_(self.logits.bias, 0)
+
+    def forward(self, x):
+        """
+        x: [B, C, H, W]
+        return: [B, embedding_dim]
+        """
+        feat = self.backbone(x)          # [B, in_feats]
+        emb = self.embedding(feat)       # [B, embedding_dim]
+        return emb
+
+    def extract(self, x):
+        return self.forward(x)
 
 
 class VisualBackbone(nn.Module):

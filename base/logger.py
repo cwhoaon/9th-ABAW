@@ -108,20 +108,11 @@ class ContinuousOutputHandler(object):
                 self.trialwise_records[trial][index[k]].append(output[i, k, 0])
 
     def average_trial_wise_records(self):
-
         for trial in self.seen_trials:
             length = len(self.trialwise_records[trial])
 
             for i in range(length):
                 self.trialwise_records[trial][i] = statistics.mean(self.trialwise_records[trial][i])
-                
-            # for i in range(length):
-            #     # ✅ 빈 리스트 체크 후 평균값 계산
-            #     if len(self.trialwise_records[trial][i]) == 0:
-            #         self.trialwise_records[trial][i] = 0.0  # 또는 np.nan 등
-            #     else:
-            #         self.trialwise_records[trial][i] = statistics.mean(
-            #             self.trialwise_records[trial][i])
 
             self.trialwise_records[trial] = np.asarray(self.trialwise_records[trial])
 

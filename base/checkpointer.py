@@ -35,9 +35,10 @@ class GenericCheckpointer(object):
             raise ValueError("Checkpoint not exists!!")
         return self.trainer, self.parameter_controller
 
-    def save_checkpoint(self, trainer, parameter_controller, path):
+    def save_checkpoint(self, trainer, parameter_controller, epoch, path):
         self.checkpoint['trainer'] = trainer
-        self.checkpoint['param_control'] = parameter_controller
+        if parameter_controller is not None:
+            self.checkpoint['param_control'] = parameter_controller
 
         print("Saving checkpoint.")
         path = os.path.join(path, "checkpoint.pkl")
@@ -91,49 +92,49 @@ class Checkpointer(GenericCheckpointer):
         df.to_csv(self.trainer.csv_filename, mode='a', index=False)
 
 
-class ClassificationCheckpointer(GenericCheckpointer):
-    r"""
-    Write training logs into csv files.
-    """
-    def __init__(self, path, trainer, parameter_controller, resume):
-        super().__init__(path, trainer, parameter_controller, resume)
-        self.columns = []
+# class ClassificationCheckpointer(GenericCheckpointer):
+#     r"""
+#     Write training logs into csv files.
+#     """
+#     def __init__(self, path, trainer, parameter_controller, resume):
+#         super().__init__(path, trainer, parameter_controller, resume)
+#         self.columns = []
 
-    def save_log_to_csv(self, epoch=None):
-        np.set_printoptions(suppress=True)
-        num_layers_to_update = len(self.trainer.optimizer.param_groups[0]['params'])
+#     def save_log_to_csv(self, epoch=None):
+#         np.set_printoptions(suppress=True)
+#         num_layers_to_update = len(self.trainer.optimizer.param_groups[0]['params'])
 
-        if epoch is None:
-            csv_records = ["Test results: ", "accuracy: ", self.trainer.test_accuracy, "kappa: ", self.trainer.test_kappa, "conf_mat: ", self.trainer.test_confusion_matrix]
-        else:
-            csv_records = [time.time(), epoch, int(self.trainer.best_epoch_info['epoch']), num_layers_to_update,
-                           self.trainer.optimizer.param_groups[0]['lr'], self.trainer.train_losses[-1],
-                           self.trainer.validate_losses[-1], self.trainer.train_accuracies[-1], self.trainer.validate_accuracies[-1],
-                           self.trainer.train_kappas[-1], self.trainer.validate_kappas[-1],
-                           self.trainer.train_confusion_matrices[-1], self.trainer.validate_confusion_matrices[-1]]
+#         if epoch is None:
+#             csv_records = ["Test results: ", "accuracy: ", self.trainer.test_accuracy, "kappa: ", self.trainer.test_kappa, "conf_mat: ", self.trainer.test_confusion_matrix]
+#         else:
+#             csv_records = [time.time(), epoch, int(self.trainer.best_epoch_info['epoch']), num_layers_to_update,
+#                            self.trainer.optimizer.param_groups[0]['lr'], self.trainer.train_losses[-1],
+#                            self.trainer.validate_losses[-1], self.trainer.train_accuracies[-1], self.trainer.validate_accuracies[-1],
+#                            self.trainer.train_kappas[-1], self.trainer.validate_kappas[-1],
+#                            self.trainer.train_confusion_matrices[-1], self.trainer.validate_confusion_matrices[-1]]
 
-        row_df = pd.DataFrame(data=csv_records)
-        row_df.T.to_csv(self.trainer.csv_filename, mode='a', index=False, header=False)
-        np.set_printoptions()
+#         row_df = pd.DataFrame(data=csv_records)
+#         row_df.T.to_csv(self.trainer.csv_filename, mode='a', index=False, header=False)
+#         np.set_printoptions()
 
-    def init_csv_logger(self, args, config):
+#     def init_csv_logger(self, args, config):
 
-        self.trainer.csv_filename = os.path.join(self.trainer.save_path, "training_logs.csv")
+#         self.trainer.csv_filename = os.path.join(self.trainer.save_path, "training_logs.csv")
 
-        # Record the arguments.
-        arguments_dict = vars(args)
-        self.print_dict(arguments_dict)
-        self.print_dict(config)
+#         # Record the arguments.
+#         arguments_dict = vars(args)
+#         self.print_dict(arguments_dict)
+#         self.print_dict(config)
 
-        self.columns = ['time', 'epoch', 'best_epoch', 'layer_to_update', 'lr',
-                        'tr_loss', 'val_loss', 'tr_acc', 'val_acc', 'tr_kappa', 'val_kappa', 'tr_conf_mat', 'val_conf_mat']
+#         self.columns = ['time', 'epoch', 'best_epoch', 'layer_to_update', 'lr',
+#                         'tr_loss', 'val_loss', 'tr_acc', 'val_acc', 'tr_kappa', 'val_kappa', 'tr_conf_mat', 'val_conf_mat']
 
-        df = pd.DataFrame(columns=self.columns)
-        df.to_csv(self.trainer.csv_filename, mode='a', index=False)
+#         df = pd.DataFrame(columns=self.columns)
+#         df.to_csv(self.trainer.csv_filename, mode='a', index=False)
 
-    def print_dict(self, data_dict):
-        for key, value in data_dict.items():
-            csv_records = [str(key) + " = " + str(value)]
-            row_df = pd.DataFrame(data=csv_records)
-            row_df.T.to_csv(self.trainer.csv_filename, mode='a', index=False, header=False, sep=' ')
+#     def print_dict(self, data_dict):
+#         for key, value in data_dict.items():
+#             csv_records = [str(key) + " = " + str(value)]
+#             row_df = pd.DataFrame(data=csv_records)
+#             row_df.T.to_csv(self.trainer.csv_filename, mode='a', index=False, header=False, sep=' ')
 

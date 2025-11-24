@@ -30,9 +30,7 @@ class MSELoss(nn.Module):
         super().__init__()
 
     def forward(self, gold, pred, weights=None):
-        mse_loss = F.mse_loss(pred, gold, reduction='none')
+        mse_loss = F.mse_loss(pred, gold)
 
-        if weights is not None:
-            mse_loss *= weights
 
-        return torch.mean(mse_loss)
+        return mse_loss

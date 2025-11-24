@@ -11,6 +11,23 @@ import os
 import numpy as np
 
 
+
+def save_trainable_weights(model, path):
+    trainable_params = {
+        name: param
+        for name, param in model.named_parameters()
+        if param.requires_grad
+    }
+    
+    dirpath = os.path.dirname(path)
+    if not os.path.exists(dirpath):
+        os.makedirs(dirpath)
+    
+    # import ipdb; ipdb.set_trace()
+
+    torch.save(trainable_params, path)
+    print("model parameters saved at:", path)
+
 class Trainer(GenericVideoTrainer):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -18,7 +35,6 @@ class Trainer(GenericVideoTrainer):
         self.best_epoch_info = {
             'model_weights': copy.deepcopy(self.model.state_dict()),
             'loss': 1e10,
-            'ccc': -1e10,
             'acc': -1,
             'p_r_f1': 0,
             'kappa': 0,
@@ -30,15 +46,18 @@ class Trainer(GenericVideoTrainer):
                 'val_acc': -1,
             }
         }
+        
+        self.no_wandb = kwargs.get('no_wandb')
+        self.reduce_frame_level_features = kwargs.get('reduce_frame_level_features', False)
 
     def init_optimizer_and_scheduler(self, epoch=0):
         self.optimizer = optim.Adam(self.get_parameters(), lr=self.learning_rate, weight_decay=0.001)
-
-
-        self.scheduler = MyWarmupScheduler(
-            optimizer=self.optimizer, lr = self.learning_rate, min_lr=self.min_learning_rate,
-            best=self.best_epoch_info['ccc'], mode="min", patience=self.patience,
-            factor=self.factor, num_warmup_epoch=self.min_epoch, init_epoch=epoch)
+        if self.use_scheduler:
+            self.scheduler = MyWarmupScheduler(
+                optimizer=self.optimizer, lr = self.learning_rate, min_lr=self.min_learning_rate,
+                best=self.best_epoch_info['loss'], mode="min", patience=self.patience,
+                factor=self.factor, num_warmup_epoch=self.min_epoch, init_epoch=epoch)
+        
 
     def fit(self, dataloader_dict, checkpoint_controller, parameter_controller):
 
@@ -53,11 +72,9 @@ class Trainer(GenericVideoTrainer):
             self.best_epoch_info = {
                 'model_weights': copy.deepcopy(self.model.state_dict()),
                 'loss': 1e10,
-                'ccc': -1e10
             }
 
         for epoch in np.arange(start_epoch, self.max_epoch):
-
             if self.fit_finished:
                 if self.verbose:
                     print("\nEarly Stop!\n")
@@ -65,12 +82,12 @@ class Trainer(GenericVideoTrainer):
 
             improvement = False
 
-            if epoch in self.milestone or (parameter_controller.get_current_lr() < self.min_learning_rate and epoch >= self.min_epoch and self.scheduler.relative_epoch > self.min_epoch):
-                parameter_controller.release_param(self.model.spatial, epoch)
-                if parameter_controller.early_stop:
-                    break
+            # if epoch in self.milestone or (parameter_controller.get_current_lr() < self.min_learning_rate and epoch >= self.min_epoch and self.scheduler.relative_epoch > self.min_epoch):
+            #     parameter_controller.release_param(self.model.spatial, epoch)
+            #     if parameter_controller.early_stop:
+            #         break
 
-                self.model.load_state_dict(self.best_epoch_info['model_weights'])
+            #     self.model.load_state_dict(self.best_epoch_info['model_weights'])
 
             time_epoch_start = time.time()
 
@@ -79,10 +96,10 @@ class Trainer(GenericVideoTrainer):
 
             # Get the losses and the record dictionaries for training and validation.
             train_kwargs = {"dataloader_dict": dataloader_dict, "epoch": epoch}
-            train_loss, train_record_dict = self.train(**train_kwargs)
+            train_loss = self.train(**train_kwargs)
 
             validate_kwargs = {"dataloader_dict": dataloader_dict, "epoch": epoch}
-            validate_loss, validate_record_dict = self.validate(**validate_kwargs)
+            validate_loss = self.validate(**validate_kwargs)
 
             # if epoch % 1 == 0:
             #     test_kwargs = {"dataloader_dict": dataloader_dict, "epoch": None, "train_mode": 0}
@@ -95,25 +112,25 @@ class Trainer(GenericVideoTrainer):
             self.train_losses.append(train_loss)
             self.validate_losses.append(validate_loss)
 
-            validate_ccc = validate_record_dict['overall']['ccc']
+            # validate_ccc = validate_record_dict['overall']['ccc']
 
-            self.scheduler.best = self.best_epoch_info['ccc']
+            if self.use_scheduler:
+                self.scheduler.best = self.best_epoch_info['loss']
 
 
-            if validate_ccc > self.best_epoch_info['ccc']:
-                torch.save(self.model.state_dict(), os.path.join(self.save_path, "model_state_dict" + str(validate_ccc) + ".pth"))
+            if validate_loss < self.best_epoch_info['loss']:
+                save_trainable_weights(self.model, os.path.join(self.save_path, "best.pt"))
 
                 improvement = True
                 self.best_epoch_info = {
                     'model_weights': copy.deepcopy(self.model.state_dict()),
                     'loss': validate_loss,
-                    'ccc': validate_ccc,
                     'epoch': epoch,
                 }
 
             if self.verbose:
                 print(
-                    "\n Fold {:2} Epoch {:2} in {:.0f}s || Train loss={:.3f} | Val loss={:.3f} | LR={:.1e} | Release_count={} | best={} | "
+                    "\n Fold {:2} Epoch {:2} in {:.0f}s || Train loss={:.3f} | Val loss={:.3f} | LR={:.1e} | best={} | "
                     "improvement={}-{}".format(
                         self.fold,
                         epoch + 1,
@@ -121,20 +138,15 @@ class Trainer(GenericVideoTrainer):
                         train_loss,
                         validate_loss,
                         self.optimizer.param_groups[0]['lr'],
-                        parameter_controller.release_count,
                         int(self.best_epoch_info['epoch']) + 1,
                         improvement,
                         self.early_stopping_counter))
 
-                print(train_record_dict['overall'])
-                print(validate_record_dict['overall'])
-                print("------")
-
-            checkpoint_controller.save_log_to_csv(
-                epoch, train_record_dict['overall'], validate_record_dict['overall'])
+            # checkpoint_controller.save_log_to_csv(
+            #     epoch, train_record_dict['overall'], validate_record_dict['overall'])
 
             # Early stopping controller.
-            if self.early_stopping and self.scheduler.relative_epoch > self.min_epoch:
+            if self.early_stopping and (not self.use_scheduler or self.scheduler.relative_epoch > self.min_epoch):
                 if improvement:
                     self.early_stopping_counter = self.early_stopping
                 else:
@@ -143,17 +155,21 @@ class Trainer(GenericVideoTrainer):
                 if self.early_stopping_counter <= 0:
                     self.fit_finished = True
 
-            self.scheduler.step(metrics=validate_ccc, epoch=epoch)
-
+            if self.use_scheduler:
+                self.scheduler.step(metrics=validate_loss, epoch=epoch)
 
             self.start_epoch = epoch + 1
 
             if self.load_best_at_each_epoch:
                 self.model.load_state_dict(self.best_epoch_info['model_weights'])
+            
+            save_trainable_weights(self.model, os.path.join(self.save_path, f'epoch_{epoch+1}.pt'))
 
-            checkpoint_controller.save_checkpoint(self, parameter_controller, self.save_path)
+            # checkpoint_controller.save_checkpoint(self, parameter_controller, epoch, self.save_path)
 
         self.fit_finished = True
-        checkpoint_controller.save_checkpoint(self, parameter_controller, self.save_path)
+        
+        save_trainable_weights(self.model, os.path.join(self.save_path, f'last.pt'))
+        # checkpoint_controller.save_checkpoint(self, parameter_controller, epoch, self.save_path)
 
         self.model.load_state_dict(self.best_epoch_info['model_weights'])
