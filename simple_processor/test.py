@@ -16,7 +16,6 @@ video_path = "raw/5.mp4" # path to input video file
 # /data1/9th-ABAW/output/efficientnet_scheduler_fold0/best.pt /efficientnet
 backbone_path = "/data1/9th-ABAW/output/efficientnet_sg_fold0/epoch_4.pt"
 backbone_setting = {
-    'reduce_frame_level_features': False,
     'simple_gate': True,
     'visual_backbone_type': 'efficientnet'
 }
