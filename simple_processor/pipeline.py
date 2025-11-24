@@ -31,7 +31,7 @@ class Pipeline(nn.Module):
             num_heads=2,
             root_dir='pretrained_model', 
             device=self.device,
-            reduce_frame_level_features=backbone_setting['reduce_frame_level_features'],
+            reduce_frame_level_features=False,
             simple_gate=backbone_setting['simple_gate'],
             visual_backbone_type=backbone_setting['visual_backbone_type'],
         )
